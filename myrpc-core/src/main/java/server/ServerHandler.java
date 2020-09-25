@@ -9,6 +9,7 @@ import util.ClassUtil;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -31,7 +32,7 @@ public class ServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
             Class<?> clazz = Class.forName(request.getClassName());
             if(!OBJECT_MAP.containsKey(clazz)){
                 //获取接⼝的实现类，这⾥为了演示demo,只获取第⼀个实现类，忽略其他实现类
-                ArrayList<Class<?>> allClassByInterface = ClassUtil.getAllClassByInterface(clazz);
+                List<Class> allClassByInterface = ClassUtil.getAllClassByInterface(clazz);
                 for (Class<?> c : allClassByInterface) {
                 //将对象缓存起来，提升效率
                     OBJECT_MAP.put(clazz, c.newInstance());

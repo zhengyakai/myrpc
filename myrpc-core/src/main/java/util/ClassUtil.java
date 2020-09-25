@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.JarURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -20,146 +21,70 @@ import java.util.jar.JarFile;
  urldecode.
  */
 public class ClassUtil {
-    private static final Logger LOG = LoggerFactory.getLogger(ClassUtil.class);
-    public static ArrayList<Class<?>> getAllClassByInterface(Class<?> clazz) {
-        ArrayList<Class<?>> list = new ArrayList<>();
-// 判断是否是⼀个接⼝
-        if (clazz.isInterface()) {
+    //给一个接口，返回这个接口的所有实现类
+    public static List<Class> getAllClassByInterface(Class c){
+        List<Class> returnClassList = new ArrayList<Class>(); //返回结果
+
+        //如果不是一个接口，则不做处理
+        if(c.isInterface()){
+            String packageName = c.getPackage().getName(); //获得当前的包名
             try {
-                ArrayList<Class<?>> allClass = getAllClass(clazz.getPackage().getName());
-/*
- * 循环判断路径下的所有类是否实现了指定的接⼝ 并且排除接⼝类⾃⼰
- */
-                for (Class<?> aClass : allClass) {
-                    /*
-                     * 判断是不是同⼀个接⼝
-                     */
-// isAssignableFrom:判定此 Class 对象所表示的类或接⼝与指定的 Class
-// 参数所表示的类或接⼝是否相同，或是否是其超类或超接⼝
-                    if (clazz.isAssignableFrom(aClass)) {
-                        if (!clazz.equals(aClass)) {
-// ⾃身并不加进去
-                            list.add(aClass);
+                //获得当前包下以及子包下的所有类
+                List<Class> allClass = getClasses(packageName);
+                //判断是否是同一个接口
+                for(int i=0;i<allClass.size();i++){
+                    if(c.isAssignableFrom(allClass.get(i))){ //判断是不是一个接口
+                        if(!c.equals(allClass.get(i))){ //本身不加进去
+                            returnClassList.add(allClass.get(i));
                         }
                     }
                 }
-            } catch (Exception e) {
-                LOG.error("出现异常{}", e.getMessage());
-                throw new RuntimeException("出现异常" + e.getMessage());
-            }
-        }
-        LOG.info("class list size :" + list.size());
-        return list;
-    }
-    /**
-     * 从⼀个指定路径下查找所有的类
-     *
-     * @param packagename
-     */
-    private static ArrayList<Class<?>> getAllClass(String packagename) {
-        LOG.info("packageName to search：" + packagename);
-        List<String> classNameList = getClassName(packagename);
-        ArrayList<Class<?>> list = new ArrayList<>();
-        for (String className : classNameList) {
-            try {
-                list.add(Class.forName(className));
             } catch (ClassNotFoundException e) {
-                LOG.error("load class from name failed:" + className +
-                        e.getMessage());
-                throw new RuntimeException("load class from name failed:" +
-                        className + e.getMessage());
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
-        LOG.info("find list size :" + list.size());
-        return list;
+        return returnClassList;
     }
-    /**
-     * 获取某包下所有类
-     *
-     * @param packageName 包名
-     * @return 类的完整名称
-     */
-    public static List<String> getClassName(String packageName) {
-        List<String> fileNames = null;
-        ClassLoader loader = Thread.currentThread().getContextClassLoader();
-        String packagePath = packageName.replace(".", "/");
-        URL url = loader.getResource(packagePath);
-        if (url != null) {
-            String type = url.getProtocol();
-            LOG.debug("file type : " + type);
-            if (type.equals("file")) {
-                String fileSearchPath = url.getPath();
-                LOG.debug("fileSearchPath: " + fileSearchPath);
-                fileSearchPath = fileSearchPath.substring(0,
-                        fileSearchPath.indexOf("/classes"));
-                LOG.debug("fileSearchPath: " + fileSearchPath);
-                fileNames = getClassNameByFile(fileSearchPath);
-            } else if (type.equals("jar")) {
-                try {
-                    JarURLConnection jarURLConnection = (JarURLConnection)
-                            url.openConnection();
-                    JarFile jarFile = jarURLConnection.getJarFile();
-                    fileNames = getClassNameByJar(jarFile, packagePath);
-                } catch (java.io.IOException e) {
-                    throw new RuntimeException("open Package URL failed：" +
-                            e.getMessage());
-                }
-            } else {
-                throw new RuntimeException("file system not support! cannot load MsgProcessor！");
-            }
+
+    //从一个包中查找出所有的类，在jar包中不能查找
+    private static List<Class> getClasses(String packageName)
+            throws ClassNotFoundException, IOException {
+        ClassLoader classLoader = Thread.currentThread()
+                .getContextClassLoader();
+        String path = packageName.replace('.', '/');
+        Enumeration<URL> resources = classLoader.getResources(path);
+        List<File> dirs = new ArrayList<File>();
+        while (resources.hasMoreElements()) {
+            URL resource = resources.nextElement();
+            dirs.add(new File(resource.getFile()));
         }
-        return fileNames;
+        ArrayList<Class> classes = new ArrayList<Class>();
+        for (File directory : dirs) {
+            classes.addAll(findClasses(directory, packageName));
+        }
+        return classes;
     }
-    /**
-     * 从项⽬⽂件获取某包下所有类
-     *
-     * @param filePath ⽂件路径
-     * @return 类的完整名称
-     */
-    private static List<String> getClassNameByFile(String filePath) {
-        List<String> myClassName = new ArrayList<String>();
-        File file = new File(filePath);
-        File[] childFiles = file.listFiles();
-        for (File childFile : childFiles) {
-            if (childFile.isDirectory()) {
-                myClassName.addAll(getClassNameByFile(childFile.getPath()));
-            } else {
-                String childFilePath = childFile.getPath();
-                if (childFilePath.endsWith(".class")) {
-                    childFilePath =
-                            childFilePath.substring(childFilePath.indexOf("\\classes") + 9,
-                                    childFilePath.lastIndexOf("."));
-                    childFilePath = childFilePath.replace("\\", ".");
-                    myClassName.add(childFilePath);
-                }
+
+
+    private static List<Class> findClasses(File directory, String packageName)
+            throws ClassNotFoundException {
+        List<Class> classes = new ArrayList<Class>();
+        if (!directory.exists()) {
+            return classes;
+        }
+        File[] files = directory.listFiles();
+        for (File file : files) {
+            if (file.isDirectory()) {
+                assert !file.getName().contains(".");
+                classes.addAll(findClasses(file, packageName + "." +
+                        file.getName()));
+            } else if (file.getName().endsWith(".class")) {
+                classes.add(Class.forName(packageName + '.' +
+                        file.getName().substring(0, file.getName().length() - 6)));
             }
         }
-        return myClassName;
-    }
-    /**
-     * 从jar获取某包下所有类
-     *
-     * @return 类的完整名称
-     */
-    private static List<String> getClassNameByJar(JarFile jarFile, String packagePath) {
-        List<String> myClassName = new ArrayList<String>();
-        try {
-            Enumeration<JarEntry> entrys = jarFile.entries();
-            while (entrys.hasMoreElements()) {
-                JarEntry jarEntry = entrys.nextElement();
-                String entryName = jarEntry.getName();
-//LOG.info("entrys jarfile:"+entryName);
-                if (entryName.endsWith(".class")) {
-                    entryName = entryName.replace("/", ".").substring(0,
-                            entryName.lastIndexOf("."));
-                    myClassName.add(entryName);
-//LOG.debug("Find Class :"+entryName);
-                }
-            }
-        } catch (Exception e) {
-            LOG.error("发⽣异常:" + e.getMessage());
-            throw new RuntimeException("发⽣异常:" + e.getMessage());
-        }
-        return myClassName;
+        return classes;
     }
 }
